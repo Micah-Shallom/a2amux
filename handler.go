@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -92,4 +93,15 @@ func (w *wrappedHandler) forwardRequest(rw http.ResponseWriter, r *http.Request,
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	originalHandler.ServeHTTP(rw, r)
+}
+
+func (m *Multiplexer) HTTPHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a gin context for compatibility
+		c, _ := gin.CreateTestContext(w)
+		c.Request = r
+
+		middleware := m.GinMiddleware()
+		middleware(c)
+	})
 }

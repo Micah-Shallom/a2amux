@@ -1,6 +1,7 @@
 package a2amux
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -38,7 +39,7 @@ func (m *Multiplexer) SetLogger(logger Logger) {
 }
 
 // AddRoute adds an A2A server to a specific route
-func (m *Multiplexer) AddRoute(route AgentRoute) error {
+func (m *Multiplexer) AddRoute(route AgentConfig) error {
 	// Clean the path - remove leading/trailing slashes
 	routePath := strings.Trim(route.Path, "/")
 
@@ -81,16 +82,16 @@ func (m *Multiplexer) GinMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestPath := c.Request.URL.Path
 
-		// Check if the request path starts with the base path
 		if m.basePath != "" {
 			if !strings.HasPrefix(requestPath, m.basePath) {
 				// If the request path doesn't start with the base path, return a 404 error
-				m.logger.Printf("Request path %s does not match base path %s", requestPath, m.basePath)
+				msg := fmt.Sprintf("Request path %s does not match base path %s", requestPath, m.basePath)
+				m.logger.Printf(msg)
 				c.JSON(http.StatusNotFound, gin.H{
 					"jsonrpc": "2.0",
 					"error": gin.H{
 						"code":    -32601,
-						"message": "Resource not found", // Or a more generic message
+						"message": fmt.Sprintf("Resource not found: %s", msg), // Or a more generic message
 					},
 					"id": nil,
 				})
@@ -141,10 +142,8 @@ func (m *Multiplexer) GinMiddleware() gin.HandlerFunc {
 		// Determine the new path for the A2A server
 		var newPath string
 		if len(parts) == 1 {
-			// /agent -> /
 			newPath = "/"
 		} else {
-			// /agent/something -> /something
 			newPath = "/" + strings.Join(parts[1:], "/")
 		}
 
@@ -152,14 +151,10 @@ func (m *Multiplexer) GinMiddleware() gin.HandlerFunc {
 		if newPath == "/.well-known/agent.json" && c.Request.Method == http.MethodGet {
 			m.logger.Printf("Serving agent card for %s: %s -> %s", agentName, c.Request.URL.Path, newPath)
 			c.Request.URL.Path = newPath
-			// Create a new ResponseWriter to capture the status code
-			// If the underlying handler (handler.ServeHTTP) doesn't set a status code,
-			// Gin might default to 404 because of c.Abort().
-			// By explicitly setting c.Status(http.StatusOK) before c.Abort(),
-			// we ensure the correct status code is sent.
+
 			handler.ServeHTTP(c.Writer, c.Request)
-			if c.Writer.Status() == 0 || c.Writer.Status() == http.StatusNotFound { // Check if status is not set or is 404
-				c.Status(http.StatusOK) // Explicitly set to 200 OK if no status or 404 was set by the handler
+			if c.Writer.Status() == 0 || c.Writer.Status() == http.StatusNotFound { 
+				c.Status(http.StatusOK) 
 			}
 			c.Abort()
 			return
