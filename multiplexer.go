@@ -79,9 +79,25 @@ func (m *Multiplexer) ListRoutes() []string {
 // GinMiddleware returns a Gin middleware that handles A2A requests
 func (m *Multiplexer) GinMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Remove base path from the request path
 		requestPath := c.Request.URL.Path
-		if m.basePath != "" && strings.HasPrefix(requestPath, m.basePath) {
+
+		// Check if the request path starts with the base path
+		if m.basePath != "" {
+			if !strings.HasPrefix(requestPath, m.basePath) {
+				// If the request path doesn't start with the base path, return a 404 error
+				m.logger.Printf("Request path %s does not match base path %s", requestPath, m.basePath)
+				c.JSON(http.StatusNotFound, gin.H{
+					"jsonrpc": "2.0",
+					"error": gin.H{
+						"code":    -32601,
+						"message": "Resource not found", // Or a more generic message
+					},
+					"id": nil,
+				})
+				c.Abort()
+				return
+			}
+			// If it does, remove the base path from the request path
 			requestPath = strings.TrimPrefix(requestPath, m.basePath)
 		}
 
@@ -136,7 +152,15 @@ func (m *Multiplexer) GinMiddleware() gin.HandlerFunc {
 		if newPath == "/.well-known/agent.json" && c.Request.Method == http.MethodGet {
 			m.logger.Printf("Serving agent card for %s: %s -> %s", agentName, c.Request.URL.Path, newPath)
 			c.Request.URL.Path = newPath
+			// Create a new ResponseWriter to capture the status code
+			// If the underlying handler (handler.ServeHTTP) doesn't set a status code,
+			// Gin might default to 404 because of c.Abort().
+			// By explicitly setting c.Status(http.StatusOK) before c.Abort(),
+			// we ensure the correct status code is sent.
 			handler.ServeHTTP(c.Writer, c.Request)
+			if c.Writer.Status() == 0 || c.Writer.Status() == http.StatusNotFound { // Check if status is not set or is 404
+				c.Status(http.StatusOK) // Explicitly set to 200 OK if no status or 404 was set by the handler
+			}
 			c.Abort()
 			return
 		}
